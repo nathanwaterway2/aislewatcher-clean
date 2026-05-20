@@ -20,6 +20,10 @@ export default function AdminUploadsPage() {
   const [statusFilter, setStatusFilter] = useState('pending')
   const [loading, setLoading] = useState(false)
   const [expandedBatch, setExpandedBatch] = useState<number | null>(null)
+  const [adminTab, setAdminTab] = useState<'stores' | 'uploads'>('stores')
+
+  const [storeSubmissions, setStoreSubmissions] = useState<any[]>([])
+
 
   useEffect(() => {
     loadUploads()
@@ -159,6 +163,14 @@ export default function AdminUploadsPage() {
     )
 
     setBatches(groupedBatches)
+
+    const { data: submissionData } = await supabase
+      .from('store_submissions')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    setStoreSubmissions(submissionData || [])
+
     setLoading(false)
   }
 
@@ -379,6 +391,64 @@ export default function AdminUploadsPage() {
     }
   }
 
+
+
+  async function approveStoreSubmission(submission: any) {
+
+    const { data: insertedStore, error: storeError } = await supabase
+      .from('stores')
+      .insert({
+        store: submission.store_name,
+        address: submission.address,
+        city: submission.city,
+        st: submission.st,
+        postal: submission.postal,
+        lat: submission.lat,
+        long: submission.long,
+      })
+      .select()
+      .single()
+
+    if (storeError || !insertedStore) {
+      console.error('STORE CREATE ERROR:', storeError)
+      alert('Failed to create store.')
+      return
+    }
+
+    await supabase
+      .from('saved_stores')
+      .insert({
+        user_id: submission.user_id,
+        store_id: insertedStore.id,
+      })
+
+    await supabase
+      .from('store_submissions')
+      .update({
+        status: 'approved',
+        approved_store_id: insertedStore.id,
+        approved_at: new Date().toISOString(),
+      })
+      .eq('id', submission.id)
+
+    alert('Store approved and added.')
+
+    loadUploads()
+  }
+
+  async function rejectStoreSubmission(id: number) {
+
+    await supabase
+      .from('store_submissions')
+      .update({
+        status: 'rejected',
+      })
+      .eq('id', id)
+
+    loadUploads()
+  }
+
+
   function getBatchStatus(batchGroup: any) {
     const statuses = batchGroup.uploads.map((u: any) => u.status)
 
@@ -400,7 +470,7 @@ export default function AdminUploadsPage() {
             <div className="flex items-center justify-between gap-4 mb-4">
               <div>
                 <h1 className="text-4xl font-bold mb-2">
-                  Upload Moderation
+                  Admin Moderation Center
                 </h1>
 
                 <p className="text-gray-400">
@@ -419,24 +489,56 @@ export default function AdminUploadsPage() {
               </div>
             </div>
 
-            {/* FILTERS */}
-            <div className="flex flex-wrap gap-2 sticky top-0 z-20 bg-black py-3">
-              {[
-                ...UPLOAD_STATUS_OPTIONS,
-                { value: 'all', label: 'All' },
-              ].map(({ value, label }) => (
+            {/* ADMIN TABS */}
+            <div className="sticky top-0 z-20 bg-black py-4 mb-6 border-b border-white/10">
+
+              <div className="flex flex-wrap gap-3 mb-4">
+
                 <button
-                  key={value}
-                  onClick={() => setStatusFilter(value)}
-                  className={`px-4 py-2 rounded-xl border text-sm transition ${
-                    statusFilter === value
-                      ? 'bg-white text-black border-white'
-                      : 'bg-white/5 border-white/10 text-white hover:border-white/30'
+                  onClick={() => setAdminTab('stores')}
+                  className={`px-5 py-3 rounded-2xl border text-sm font-medium transition ${
+                    adminTab === 'stores'
+                      ? 'bg-violet-600 border-violet-500 text-white'
+                      : 'bg-white/5 border-white/10 text-gray-300 hover:border-white/30'
                   }`}
                 >
-                  {label}
+                  Store Requests ({storeSubmissions.length})
                 </button>
-              ))}
+
+                <button
+                  onClick={() => setAdminTab('uploads')}
+                  className={`px-5 py-3 rounded-2xl border text-sm font-medium transition ${
+                    adminTab === 'uploads'
+                      ? 'bg-blue-600 border-blue-500 text-white'
+                      : 'bg-white/5 border-white/10 text-gray-300 hover:border-white/30'
+                  }`}
+                >
+                  Upload Batches ({batches.length})
+                </button>
+
+              </div>
+
+              {adminTab === 'uploads' && (
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    ...UPLOAD_STATUS_OPTIONS,
+                    { value: 'all', label: 'All' },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => setStatusFilter(value)}
+                      className={`px-4 py-2 rounded-xl border text-sm transition ${
+                        statusFilter === value
+                          ? 'bg-white text-black border-white'
+                          : 'bg-white/5 border-white/10 text-white hover:border-white/30'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
             </div>
           </div>
 
@@ -454,7 +556,154 @@ export default function AdminUploadsPage() {
             </div>
           )}
 
-          {/* BATCHES */}
+          
+          {adminTab === 'stores' && (
+<>
+{/* STORE SUBMISSIONS */}
+          {storeSubmissions.length > 0 && (
+            <div className="mb-10">
+
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-2xl font-bold">
+                    Store Submissions
+                  </h2>
+
+                  <p className="text-gray-500 text-sm mt-1">
+                    Community-submitted stores awaiting approval.
+                  </p>
+                </div>
+
+                <div className="text-sm text-gray-400">
+                  {storeSubmissions.length} pending
+                </div>
+              </div>
+
+              <div className="space-y-4">
+
+                {storeSubmissions.map((submission: any) => (
+
+                  <div
+                    key={submission.id}
+                    className="bg-[#071225] border border-white/10 rounded-3xl overflow-hidden"
+                  >
+
+                    <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr_1fr_220px] gap-5 px-6 py-6">
+
+                      <div>
+
+                        <div className="text-2xl font-bold text-violet-300 mb-2">
+                          {submission.store_name}
+                        </div>
+
+                        <div className="text-gray-300 mb-1">
+                          {submission.address}
+                        </div>
+
+                        <div className="text-gray-500 text-sm">
+                          {submission.city}, {submission.st} {submission.postal}
+                        </div>
+
+                        <div className="text-xs text-gray-500 mt-4">
+                          Submitted {timeAgo(submission.created_at)}
+                        </div>
+
+                      </div>
+
+                      <div>
+
+                        <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
+                          Submission Info
+                        </div>
+
+                        <div className="space-y-2 text-sm">
+
+                          <div className="text-gray-300">
+                            Category: {submission.category || 'Unknown'}
+                          </div>
+
+                          <div className="text-gray-300">
+                            Stock: {submission.stock_level || 'Unknown'}
+                          </div>
+
+                          <div className="text-gray-300">
+                            Quality: {submission.find_quality || 'Unknown'}
+                          </div>
+
+                        </div>
+
+                      </div>
+
+                      <div>
+
+                        <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
+                          Notes
+                        </div>
+
+                        <div className="text-sm text-gray-300 whitespace-pre-wrap">
+                          {submission.notes || 'No notes'}
+                        </div>
+
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+
+                        <button
+                          onClick={() => approveStoreSubmission(submission)}
+                          className="bg-green-600 hover:bg-green-500 px-4 py-3 rounded-xl text-sm font-medium"
+                        >
+                          Approve Store
+                        </button>
+
+                        <button
+                          onClick={() => rejectStoreSubmission(submission.id)}
+                          className="bg-red-600 hover:bg-red-500 px-4 py-3 rounded-xl text-sm font-medium"
+                        >
+                          Reject
+                        </button>
+
+                      </div>
+
+                    </div>
+
+                    {submission.photo_urls?.length > 0 && (
+
+                      <div className="px-6 pb-6">
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+                          {submission.photo_urls.map((photo: string, index: number) => (
+
+                            <img
+                              key={index}
+                              src={photo}
+                              alt="Store submission"
+                              className="w-full h-48 object-cover rounded-2xl border border-white/10"
+                            />
+
+                          ))}
+
+                        </div>
+
+                      </div>
+
+                    )}
+
+                  </div>
+
+                ))}
+
+              </div>
+
+            </div>
+          )}
+
+</>
+)}
+
+{adminTab === 'uploads' && (
+<>
+{/* BATCHES */}
           {!loading && batches.length > 0 && (
             <div className="space-y-5">
               {batches.map((batchGroup) => {
@@ -846,6 +1095,8 @@ export default function AdminUploadsPage() {
               })}
             </div>
           )}
+</>
+)}
         </div>
       </div>
     </main>

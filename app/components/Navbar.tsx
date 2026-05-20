@@ -9,8 +9,9 @@ export default function Navbar() {
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
 
-  // ✅ MOBILE MENU
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  const [points, setPoints] = useState(0)
 
   useEffect(() => {
 
@@ -36,6 +37,30 @@ export default function Navbar() {
         .single()
 
       setProfile(profileData)
+
+      const { data: batchesData } = await supabase
+        .from('upload_batches')
+        .select('id')
+        .eq('user_id', session.user.id)
+
+      const batchIds = (batchesData || []).map(
+        (b: any) => Number(b.id)
+      )
+
+      if (batchIds.length === 0) {
+        setPoints(0)
+        return
+      }
+
+      const { data: uploadsData } = await supabase
+        .from('uploads')
+        .select('id')
+        .in('batch_id', batchIds)
+        .eq('status', 'approved')
+
+      const approvedCount = uploadsData?.length || 0
+
+      setPoints(approvedCount * 10)
     }
 
     loadUser()
@@ -52,29 +77,12 @@ export default function Navbar() {
   return (
 
     <>
-      {/* NAVBAR */}
       <header className="sticky top-0 z-50 border-b border-white/10 bg-black/85 backdrop-blur-xl">
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
 
-          {/* LEFT */}
+          {/* LEFT SIDE */}
           <div className="flex items-center gap-4">
-
-            {/* MOBILE MENU BUTTON */}
-            <button
-              onClick={() => setMobileOpen(!mobileOpen)}
-              className="md:hidden w-10 h-10 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center text-white"
-            >
-
-              <div className="space-y-1">
-
-                <div className="w-4 h-0.5 bg-white rounded-full" />
-                <div className="w-4 h-0.5 bg-white rounded-full" />
-                <div className="w-4 h-0.5 bg-white rounded-full" />
-
-              </div>
-
-            </button>
 
             {/* LOGO */}
             <Link
@@ -94,14 +102,21 @@ export default function Navbar() {
 
             </Link>
 
-            {/* DESKTOP NAV */}
-            <nav className="hidden md:flex items-center gap-6 text-sm ml-6">
+            {/* MAIN NAV */}
+            <nav className="hidden md:flex items-center gap-7 text-sm ml-6">
 
               <Link
                 href="/stores"
                 className="text-gray-400 hover:text-white transition"
               >
                 Browse Stores
+              </Link>
+
+              <Link
+                href="/upload"
+                className="text-violet-300 hover:text-white transition"
+              >
+                Upload
               </Link>
 
               {user && (
@@ -126,25 +141,26 @@ export default function Navbar() {
 
           </div>
 
-          {/* RIGHT */}
-          <div className="flex items-center gap-2">
+          {/* RIGHT SIDE */}
+          <div className="flex items-center gap-3">
+
+            {/* ADMIN BUTTON */}
+            {profile?.is_admin && (
+
+              <Link
+                href="/admin/uploads"
+                className="hidden md:flex items-center px-4 py-2 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 hover:bg-yellow-500/20 transition text-sm font-medium"
+              >
+                Moderation
+              </Link>
+
+            )}
 
             {user ? (
 
               <>
-                {/* ADMIN */}
-                {profile?.is_admin && (
 
-                  <Link
-                    href="/admin/uploads"
-                    className="hidden md:flex items-center px-4 py-2 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 hover:bg-yellow-500/20 transition text-sm"
-                  >
-                    Moderation
-                  </Link>
-
-                )}
-
-                {/* DESKTOP PROFILE */}
+                {/* USER PILL */}
                 <Link
                   href="/my-uploads"
                   className="hidden lg:flex items-center gap-3 px-4 py-2 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition"
@@ -166,7 +182,7 @@ export default function Navbar() {
 
                     <div className="text-xs text-violet-300">
 
-                      {(profile?.points || 0)} pts
+                      {points} pts
 
                     </div>
 
@@ -174,17 +190,10 @@ export default function Navbar() {
 
                 </Link>
 
-                {/* MOBILE USER */}
-                <div className="lg:hidden text-xs text-gray-400 px-2 truncate max-w-[90px]">
-
-                  {profile?.username || 'User'}
-
-                </div>
-
                 {/* LOGOUT */}
                 <button
                   onClick={handleLogout}
-                  className="px-3 sm:px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm transition"
+                  className="hidden md:block px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm transition"
                 >
                   Logout
                 </button>
@@ -193,25 +202,36 @@ export default function Navbar() {
 
             ) : (
 
-              <>
+              <div className="hidden md:flex items-center gap-2">
 
                 <Link
                   href="/login"
-                  className="hidden sm:block text-sm text-gray-300 hover:text-white transition px-2"
+                  className="text-sm text-gray-300 hover:text-white transition px-2"
                 >
                   Sign In
                 </Link>
 
-                <Link
-                  href="/signup"
-                  className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium transition shadow-lg shadow-violet-900/30"
-                >
-                  Sign Up
-                </Link>
+				<Link
+				  href="/login?mode=signup"
+				  onClick={() => setMobileOpen(false)}
+				  className="px-4 py-3 rounded-2xl bg-violet-600 hover:bg-violet-500 text-white transition"
+				>
+				  Sign Up
+				</Link>
 
-              </>
+              </div>
 
             )}
+
+            {/* MOBILE MENU */}
+            <button
+              onClick={() => setMobileOpen(!mobileOpen)}
+              className="md:hidden w-11 h-11 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 flex items-center justify-center text-white transition"
+            >
+
+              {mobileOpen ? '✕' : '☰'}
+
+            </button>
 
           </div>
 
@@ -222,16 +242,24 @@ export default function Navbar() {
       {/* MOBILE MENU */}
       {mobileOpen && (
 
-        <div className="md:hidden border-b border-white/10 bg-zinc-950 px-4 py-4">
+        <div className="md:hidden border-b border-white/10 bg-black/95 backdrop-blur-xl">
 
-          <div className="flex flex-col gap-2">
+          <div className="px-4 py-4 flex flex-col gap-2">
 
             <Link
               href="/stores"
               onClick={() => setMobileOpen(false)}
-              className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+              className="px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
             >
               Browse Stores
+            </Link>
+
+            <Link
+              href="/upload"
+              onClick={() => setMobileOpen(false)}
+              className="px-4 py-3 rounded-2xl bg-violet-500/10 border border-violet-500/20 text-violet-300 hover:bg-violet-500/20 transition"
+            >
+              Upload
             </Link>
 
             {user && (
@@ -239,7 +267,7 @@ export default function Navbar() {
                 <Link
                   href="/my-stores"
                   onClick={() => setMobileOpen(false)}
-                  className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+                  className="px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
                 >
                   My Stores
                 </Link>
@@ -247,7 +275,7 @@ export default function Navbar() {
                 <Link
                   href="/my-uploads"
                   onClick={() => setMobileOpen(false)}
-                  className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+                  className="px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
                 >
                   My Uploads
                 </Link>
@@ -257,20 +285,61 @@ export default function Navbar() {
                   <Link
                     href="/admin/uploads"
                     onClick={() => setMobileOpen(false)}
-                    className="px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300"
+                    className="px-4 py-3 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 hover:bg-yellow-500/20 transition"
                   >
                     Moderation
                   </Link>
 
                 )}
 
+                <div className="mt-2 px-4 py-3 rounded-2xl bg-white/5 border border-white/10">
+
+                  <div className="text-white font-medium mb-1">
+
+                    {profile?.username || 'User'}
+
+                  </div>
+
+                  <div className="text-violet-300 text-sm">
+
+                    {points} pts
+
+                  </div>
+
+                </div>
+
                 <button
                   onClick={handleLogout}
-                  className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-left"
+                  className="mt-2 px-4 py-3 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 text-white transition text-left"
                 >
                   Logout
                 </button>
+
               </>
+            )}
+
+            {!user && (
+
+              <div className="flex flex-col gap-2 pt-2">
+
+                <Link
+                  href="/login"
+                  onClick={() => setMobileOpen(false)}
+                  className="px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
+                >
+                  Sign In
+                </Link>
+
+                <Link
+                  href="/signup"
+                  onClick={() => setMobileOpen(false)}
+                  className="px-4 py-3 rounded-2xl bg-violet-600 hover:bg-violet-500 text-white transition"
+                >
+                  Sign Up
+                </Link>
+
+              </div>
+
             )}
 
           </div>

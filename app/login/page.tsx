@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { createUniqueUsername } from '@/lib/createUniqueUsername'
 
 export default function LoginPage() {
 
@@ -10,7 +11,6 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [username, setUsername] = useState('')
 
   const [loading, setLoading] = useState(false)
   const [isSignup, setIsSignup] = useState(false)
@@ -21,7 +21,6 @@ export default function LoginPage() {
 
     if (isSignup) {
 
-      // SIGN UP
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -33,22 +32,30 @@ export default function LoginPage() {
         return
       }
 
-      // CREATE PROFILE
       if (data.user) {
 
-        await supabase
+        const username = await createUniqueUsername()
+
+        const { error: profileError } = await supabase
           .from('profiles')
           .insert({
             id: data.user.id,
             username,
+            is_admin: false,
+            points: 0,
           })
+
+        if (profileError) {
+          alert(profileError.message)
+          setLoading(false)
+          return
+        }
       }
 
       alert('Account created!')
 
     } else {
 
-      // LOGIN
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -72,21 +79,17 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center p-6">
 
-      <div className="w-full max-w-md bg-gray-900 rounded-2xl p-6">
+      <div className="w-full max-w-md bg-gray-900 rounded-2xl p-6 border border-gray-800">
 
-        <h1 className="text-3xl font-bold mb-6">
+        <h1 className="text-3xl font-bold mb-2">
           {isSignup ? 'Create Account' : 'Login'}
         </h1>
 
-        {isSignup && (
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full mb-4 p-3 rounded-lg bg-black border border-gray-700"
-          />
-        )}
+        <p className="text-gray-400 mb-6">
+          {isSignup
+            ? 'Create your AisleWatcher account'
+            : 'Login to your account'}
+        </p>
 
         <input
           type="email"
@@ -107,7 +110,7 @@ export default function LoginPage() {
         <button
           onClick={handleAuth}
           disabled={loading}
-          className="w-full bg-white text-black font-semibold py-3 rounded-lg"
+          className="w-full bg-purple-600 hover:bg-purple-700 transition text-white font-semibold py-3 rounded-lg"
         >
           {loading
             ? 'Loading...'
@@ -118,7 +121,7 @@ export default function LoginPage() {
 
         <button
           onClick={() => setIsSignup(!isSignup)}
-          className="mt-4 text-sm text-gray-400 hover:text-white"
+          className="mt-4 text-sm text-gray-400 hover:text-white w-full"
         >
           {isSignup
             ? 'Already have an account? Login'

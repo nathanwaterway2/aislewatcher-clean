@@ -21,7 +21,7 @@ export default function MyStoresPage() {
   const [authLoading, setAuthLoading] = useState(true)
 
   const [sortMode, setSortMode] = useState('recent')
-  const [viewMode, setViewMode] = useState('sections')
+  const viewMode = 'default'
   const [chainFilter, setChainFilter] = useState('All')
   const {
     coords: userCoords,
@@ -310,7 +310,7 @@ function StoreCard({ store }: { store: any }) {
   return (
     <div
       className={`${
-        viewMode === 'compact'
+        false
           ? 'grid grid-cols-1 md:grid-cols-[60px_1.5fr_110px_110px_150px] gap-3 p-3'
           : 'grid grid-cols-1 md:grid-cols-[80px_1.4fr_1fr_1fr_1fr_180px] gap-4 p-4'
       } items-center hover:bg-gray-800/60 transition`}
@@ -325,7 +325,7 @@ function StoreCard({ store }: { store: any }) {
             src={store.latestUpload.photo_url}
             alt="Latest upload"
             className={`${
-              viewMode === 'compact'
+              false
                 ? 'w-full md:w-14 h-20 md:h-14'
                 : 'w-full md:w-20 h-28 md:h-20'
             } object-cover rounded-lg border border-gray-700`}
@@ -333,7 +333,7 @@ function StoreCard({ store }: { store: any }) {
         ) : (
           <div
             className={`${
-              viewMode === 'compact'
+              false
                 ? 'w-full md:w-14 h-14'
                 : 'w-full md:w-20 h-20'
             } bg-gray-950 rounded-lg border border-gray-800 flex items-center justify-center text-[10px] text-gray-600`}
@@ -352,11 +352,7 @@ function StoreCard({ store }: { store: any }) {
           {store.store}
         </Link>
 
-        {viewMode !== 'compact' && (
-          <div className="text-sm text-gray-300 mt-1 truncate">
-            {store.address}
-          </div>
-        )}
+        
 
         <div className="text-xs text-gray-500 truncate">
           {store.city}, {store.st} {store.postal}
@@ -369,7 +365,7 @@ function StoreCard({ store }: { store: any }) {
         )}
       </div>
 
-      {viewMode !== 'compact' && (
+      {true && (
         <div>
 
           <div className="md:hidden text-xs uppercase tracking-wide text-gray-500 mb-1">
@@ -598,42 +594,6 @@ function StoreCard({ store }: { store: any }) {
 
                 </div>
 
-                <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-800">
-
-                  <button
-                    onClick={() => setViewMode('sections')}
-                    className={`text-xs px-3 py-2 rounded-lg border transition ${viewMode === 'sections' ? 'bg-gray-700 border-gray-600' : 'bg-gray-950 border-gray-800 hover:bg-gray-800'}`}
-                  >
-                    Sections
-                  </button>
-
-                  <button
-                    onClick={() => setViewMode('list')}
-                    className={`text-xs px-3 py-2 rounded-lg border transition ${viewMode === 'list' ? 'bg-gray-700 border-gray-600' : 'bg-gray-950 border-gray-800 hover:bg-gray-800'}`}
-                  >
-                    List
-                  </button>
-
-                  <button
-                    onClick={() => setViewMode('compact')}
-                    className={`text-xs px-3 py-2 rounded-lg border transition ${viewMode === 'compact' ? 'bg-gray-700 border-gray-600' : 'bg-gray-950 border-gray-800 hover:bg-gray-800'}`}
-                  >
-                    Compact
-                  </button>
-
-                  {sortMode === 'nearby' && !userCoords && (
-                    <button
-                      onClick={requestLocation}
-                      className="text-xs text-blue-300 hover:text-blue-200 flex items-center"
-                    >
-                      {locationStatus === 'requesting' || locationStatus === 'checking'
-                        ? 'Finding your location...'
-                        : 'Allow location to sort by distance'}
-                    </button>
-                  )}
-
-                </div>
-
               </div>
 
               {displayStores.length === 0 ? (
@@ -642,7 +602,7 @@ function StoreCard({ store }: { store: any }) {
                   No stores match this filter.
                 </div>
 
-              ) : viewMode === 'sections' ? (
+              ) : sortMode === 'recent' ? (
 
                 <div className="space-y-6">
 
@@ -668,7 +628,7 @@ function StoreCard({ store }: { store: any }) {
 
                   <div>
                     <h2 className="text-lg font-bold mb-3">
-                      Quiet Stores
+                      Older Activity
                     </h2>
 
                     <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
@@ -692,7 +652,7 @@ function StoreCard({ store }: { store: any }) {
 
                 <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
 
-                  {viewMode !== 'compact' && (
+                  {true && (
                     <div className="hidden md:grid grid-cols-[90px_1.4fr_1fr_1fr_1fr_220px] gap-4 px-4 py-3 bg-gray-950 text-xs uppercase tracking-wide text-gray-500 border-b border-gray-800">
 
                       <div>

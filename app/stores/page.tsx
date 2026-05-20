@@ -1,97 +1,42 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { createUniqueUsername } from '@/lib/createUniqueUsername'
+import SaveStoreButton from '@/app/components/SaveStoreButton'
+import { getStoreColor } from '@/app/lib/storeStyles'
 import Navbar from '@/app/components/Navbar'
+import {
+  getDistanceMiles,
+  getLocationBounds,
+  useBrowserLocation,
+} from '@/app/lib/browserLocation'
 
-export default function Home() {
+function StoresPageContent() {
 
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const query = searchParams.get('q') || ''
 
-  const [user, setUser] = useState<any>(null)
-  const [username, setUsername] = useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [searchInput, setSearchInput] = useState(query)
+  const [stores, setStores] = useState<any[]>([])
+  const [recentUploads, setRecentUploads] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
-  const [search, setSearch] = useState('')
+  const [selectedStore, setSelectedStore] = useState('All')
+  const [mounted, setMounted] = useState(false)
 
-  // ✅ RECENT UPLOADS
-  const [recentUploads, setRecentUploads] = useState<any[]>([])
+  const {
+    coords: userCoords,
+    requestLocation,
+    status: locationStatus,
+  } = useBrowserLocation()
 
-  // ✅ PROFILE + RECENTS
   useEffect(() => {
-
-    const init = async () => {
-
-      const {
-        data: { user }
-      } = await supabase.auth.getUser()
-
-      if (user) {
-
-        setUser(user)
-
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .maybeSingle()
-
-        if (profile) {
-
-          setUsername(profile.username)
-          setIsAdmin(profile.is_admin || false)
-
-        } else {
-
-          const newUsername = await createUniqueUsername()
-
-          const { error } = await supabase
-            .from('profiles')
-            .insert({
-              id: user.id,
-              username: newUsername,
-              is_admin: false
-            })
-
-          if (!error) {
-            setUsername(newUsername)
-          }
-        }
-      }
-
-      // ✅ LOAD RECENTS
-      const { data: uploadsData } = await supabase
-        .from('uploads')
-        .select('*')
-        .eq('status', 'approved')
-        .not('photo_url', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(8)
-
-      setRecentUploads(uploadsData || [])
-
-      setLoading(false)
-    }
-
-    init()
-
+    setMounted(true)
   }, [])
 
-  // 🔍 SEARCH
-  const handleSearch = () => {
-
-    if (!search.trim()) return
-
-    const encoded = encodeURIComponent(search.trim())
-
-    router.push(`/stores?q=${encoded}`)
-  }
-
-  // ⏱ TIME AGO
   function timeAgo(dateString: string) {
 
     const then = new Date(dateString).getTime()
@@ -110,149 +55,516 @@ export default function Home() {
     return `${days}d ago`
   }
 
-  return (
+  useEffect(() => {
+    setSearchInput(query)
+  }, [query])
 
+  useEffect(() => {
+
+    const runSearch = async () => {
+
+      const raw = query.trim().toLowerCase()
+      const parts = raw ? raw.split(/\s+/) : []
+
+      setLoading(true)
+
+      let zip: string | null = null
+      let state: string | null = null
+      let textParts: string[] = []
+
+      for (const part of parts) {
+
+        if (!part) continue
+
+        if (/^\d{5}$/.test(part)) {
+          zip = part
+        }
+
+        else if (part.length === 2) {
+          state = part.toUpperCase()
+        }
+
+        else {
+          textParts.push(part)
+        }
+      }
+
+      let queryBuilder = supabase
+        .from('stores')
+        .select('*')
+
+      if (selectedStore !== 'All') {
+        queryBuilder = queryBuilder.eq('store', selectedStore)
+      }
+
+      if (zip) {
+        queryBuilder = queryBuilder.eq('postal', zip)
+      }
+
+      if (state) {
+        queryBuilder = queryBuilder.eq('st', state)
+      }
+
+      if (textParts.length > 0) {
+
+        const text = textParts.join(' ')
+
+        queryBuilder = queryBuilder.or(
+          `city.ilike.%${text}%,store.ilike.%${text}%`
+        )
+      }
+
+      const usingBrowserLocation =
+        !!userCoords &&
+        !zip &&
+        !state &&
+        textParts.length === 0
+
+      if (usingBrowserLocation) {
+
+        const bounds = getLocationBounds(userCoords, 100)
+
+        queryBuilder = queryBuilder
+          .gte('lat', bounds.minLat)
+          .lte('lat', bounds.maxLat)
+          .gte('long', bounds.minLong)
+          .lte('long', bounds.maxLong)
+      }
+
+      const { data: storeData, error: storeError } =
+        await queryBuilder.limit(usingBrowserLocation ? 300 : 100)
+
+      if (storeError) {
+
+        console.error(storeError)
+
+        setStores([])
+        setLoading(false)
+
+        return
+      }
+
+      const baseStores = storeData || []
+
+      const storeIds = baseStores.map((store) =>
+        Number(store.id)
+      )
+
+      const { data: batchesData } = await supabase
+        .from('upload_batches')
+        .select('*')
+        .in('store_id', storeIds)
+
+      const batches = batchesData || []
+
+      const batchIds = batches.map((batch) =>
+        Number(batch.id)
+      )
+
+      const { data: approvedUploadsData } = await supabase
+        .from('uploads')
+        .select('*')
+        .in('batch_id', batchIds)
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false })
+
+      const approvedUploads = approvedUploadsData || []
+
+      // RECENT GLOBAL UPLOADS
+      const { data: recentUploadsData } = await supabase
+        .from('uploads')
+        .select('*')
+        .eq('status', 'approved')
+        .not('photo_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(50)
+
+      setRecentUploads(recentUploadsData || [])
+
+      const storesWithUploads = baseStores.map((store) => {
+
+        const storeBatches = batches.filter(
+          (batch) =>
+            Number(batch.store_id) === Number(store.id)
+        )
+
+        const storeBatchIds = storeBatches.map(
+          (batch) => Number(batch.id)
+        )
+
+        const storeUploads = approvedUploads.filter(
+          (upload) =>
+            storeBatchIds.includes(Number(upload.batch_id))
+        )
+
+        const latestUpload = storeUploads[0] || null
+
+        return {
+          ...store,
+          latestUpload,
+          distanceMiles: getDistanceMiles(userCoords, store),
+          uploadCount: storeUploads.length,
+        }
+      })
+
+      if (userCoords) {
+
+        storesWithUploads.sort((a, b) => {
+
+          if (a.distanceMiles === null && b.distanceMiles === null) {
+            return 0
+          }
+
+          if (a.distanceMiles === null) return 1
+          if (b.distanceMiles === null) return -1
+
+          return a.distanceMiles - b.distanceMiles
+        })
+      }
+
+      setStores(storesWithUploads)
+      setLoading(false)
+    }
+
+    runSearch()
+
+  }, [query, selectedStore, userCoords])
+
+  return (
     <main className="min-h-screen bg-black text-white">
 
       <Navbar />
 
-      {/* HERO */}
-      <div className="max-w-5xl mx-auto text-center px-6 py-24">
+      <div className="p-4 md:p-6">
 
-        {/* LABEL */}
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm text-gray-300 mb-8">
+        <div className="max-w-5xl mx-auto">
 
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+          {/* HEADER */}
+          <div className="mb-8">
 
-          Live store activity from real users
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm text-gray-300 mb-5">
 
-        </div>
+              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
 
-        {/* TITLE */}
-        <h1 className="text-5xl md:text-7xl font-semibold mb-6 leading-tight tracking-tight">
+              {!mounted
+                ? 'Loading location...'
+                : userCoords
+                ? 'Using your browser location'
+                : 'Search stores or allow location'}
 
-          See what’s actually
-          <br />
-          in stores near you
+            </div>
 
-        </h1>
+            <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-3">
 
-        {/* SUBTITLE */}
-        <p className="text-gray-400 mb-12 text-xl max-w-2xl mx-auto leading-relaxed">
+              {!mounted
+                ? 'Find a Store'
+                : userCoords && !query
+                ? 'Stores Near You'
+                : 'Find a Store'}
 
-          Browse real shelf photos, track inventory activity,
-          and find items before you waste the trip.
+            </h1>
 
-        </p>
+            <p className="text-gray-400 text-lg">
 
-        {/* SEARCH */}
-        <div className="flex flex-col sm:flex-row gap-3 justify-center mb-10">
+              {loading
+                ? 'Loading stores...'
+                : `${stores.length} stores found`}
 
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search Walmart Branford, Target Milford, CVS East Haven..."
-            className="w-full max-w-2xl px-6 py-5 rounded-2xl bg-white/5 border border-white/10 focus:outline-none focus:ring-2 focus:ring-violet-500 text-white placeholder:text-gray-500 backdrop-blur-sm"
-          />
-
-          <button
-            onClick={handleSearch}
-            className="px-8 py-5 rounded-2xl bg-violet-600 text-white font-medium hover:bg-violet-500 transition shadow-xl shadow-violet-900/30"
-          >
-            Search
-          </button>
-
-        </div>
-
-        {/* QUICK STATS */}
-        <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-gray-400">
-
-          <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
-            Real shelf photos
-          </div>
-
-          <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
-            Live upload activity
-          </div>
-
-          <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
-            Community verified
-          </div>
-
-        </div>
-
-      </div>
-
-      {/* RECENT UPLOADS */}
-      <div className="max-w-6xl mx-auto px-6 pb-24">
-
-        <div className="flex items-center justify-between mb-6">
-
-          <div>
-
-            <h2 className="text-2xl md:text-3xl font-semibold text-white mb-1">
-              Recent store photos
-            </h2>
-
-            <p className="text-gray-400">
-              Latest community uploads
             </p>
 
           </div>
 
-          <Link
-            href="/stores"
-            className="text-violet-400 hover:text-violet-300 transition text-sm"
+          {/* SEARCH */}
+          <form
+            onSubmit={(e) => {
+
+              e.preventDefault()
+
+              if (!searchInput.trim()) return
+
+              router.push(
+                `/stores?q=${encodeURIComponent(searchInput)}`
+              )
+            }}
+            className="mb-8"
           >
-            Browse all →
-          </Link>
 
-        </div>
+            <div className="flex flex-col sm:flex-row gap-3">
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) =>
+                  setSearchInput(e.target.value)
+                }
+                placeholder="Search stores, cities, ZIP codes..."
+                className="flex-1 px-5 py-3.5 rounded-2xl bg-white/5 border border-white/10 focus:outline-none focus:ring-2 focus:ring-violet-500 text-white placeholder:text-gray-500"
+              />
 
-          {recentUploads.map((upload, index) => (
+              <button
+                type="submit"
+                className="px-6 py-3.5 rounded-2xl bg-violet-600 hover:bg-violet-500 transition font-medium"
+              >
+                Search
+              </button>
 
-            <Link
-              key={upload.id || index}
-              href={`/stores/${upload.store_id || ''}`}
-              className="group"
-            >
+              <button
+                type="button"
+                onClick={requestLocation}
+                className="px-6 py-3.5 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition font-medium text-white"
+              >
+                Use My Location
+              </button>
 
-              <div className="rounded-2xl overflow-hidden bg-white/5 border border-white/10 hover:border-white/20 transition">
+            </div>
 
-                <div className="aspect-[4/5] overflow-hidden bg-black">
+          </form>
 
-                  <img
-                    src={upload.photo_url}
-                    alt="Recent upload"
-                    className="w-full h-full object-cover group-hover:scale-[1.03] transition duration-500"
-                  />
+          {/* FILTERS */}
+          <div className="flex flex-wrap gap-2 mb-8">
 
-                </div>
+            {[
+              'All',
+              'Walmart',
+              'Target',
+              'CVS',
+              'Walgreens',
+              'Dollar General',
+              'Dollar Tree',
+              'Family Dollar',
+              'Stop & Shop',
+            ].map((name) => (
 
-                <div className="p-3">
+              <button
+                key={name}
+                onClick={() => setSelectedStore(name)}
+                className={`px-3 py-1 rounded-full border transition text-xs font-medium ${
+                  selectedStore === name
+                    ? 'bg-white text-black border-white'
+                    : 'bg-white/5 text-white border-white/10 hover:border-white/30'
+                }`}
+              >
+                {name}
+              </button>
 
-                  <div className="text-white text-sm font-medium truncate">
-                    {upload.find_quality || 'Recent Upload'}
+            ))}
+
+          </div>
+
+          {/* RESULTS */}
+          {loading ? (
+
+            <p className="text-gray-400">
+              Loading...
+            </p>
+
+          ) : (
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+              {stores.map((store, index) => {
+
+                const fallbackUpload =
+                  recentUploads.length > 0
+                    ? recentUploads[
+                        index % recentUploads.length
+                      ]
+                    : null
+
+                return (
+
+                  <div
+                    key={store.id}
+                    className="bg-white/5 hover:bg-white/[0.07] border border-white/10 rounded-3xl overflow-hidden backdrop-blur-sm hover:border-white/20 transition"
+                  >
+
+                    <Link href={`/stores/${store.id}`}>
+
+                      {store.latestUpload?.photo_url ? (
+
+                        <div className="overflow-hidden bg-black">
+
+                          <img
+                            src={store.latestUpload.photo_url}
+                            alt="Latest upload"
+                            className="w-full h-40 object-cover hover:scale-[1.02] transition duration-500"
+                          />
+
+                        </div>
+
+                      ) : fallbackUpload?.photo_url ? (
+
+                        <div className="overflow-hidden bg-black relative">
+
+                          <img
+                            src={fallbackUpload.photo_url}
+                            alt="Nearby activity"
+                            className="w-full h-40 object-cover opacity-90"
+                          />
+
+                          <div className="absolute inset-0 bg-black/40" />
+
+                          <div className="absolute bottom-3 left-3">
+
+                            <div className="text-xs px-2 py-1 rounded-full bg-black/60 border border-white/10 text-white">
+                              Nearby activity
+                            </div>
+
+                          </div>
+
+                        </div>
+
+                      ) : (
+
+                        <div className="w-full h-40 bg-gradient-to-br from-zinc-900 to-black flex flex-col items-center justify-center text-center px-4 border-b border-white/5">
+
+                          <div className="text-3xl mb-2">
+                            📸
+                          </div>
+
+                          <p className="text-gray-300 font-medium">
+                            No uploads yet
+                          </p>
+
+                        </div>
+
+                      )}
+
+                    </Link>
+
+                    <div className="p-5">
+
+                      <div className="flex items-start justify-between gap-4">
+
+                        <div className="flex-1 min-w-0">
+
+                          <Link
+                            href={`/stores/${store.id}`}
+                            className={`block font-bold text-2xl mb-1 hover:opacity-80 transition ${getStoreColor(store.store).text}`}
+                          >
+                            {store.store}
+                          </Link>
+
+                          <div className="text-gray-300 text-sm leading-relaxed">
+                            {store.address}
+                          </div>
+
+                          <div className="text-gray-500 text-sm mb-4">
+                            {store.city}, {store.st} {store.postal}
+                          </div>
+
+                          {store.distanceMiles !== null && (
+
+                            <div className="text-xs text-blue-300 mb-4">
+
+                              {store.distanceMiles.toFixed(1)} mi away
+
+                            </div>
+
+                          )}
+
+                          <div className="flex flex-wrap gap-2 mb-4">
+
+                            {store.uploadCount > 0 && (
+
+                              <div className="text-xs px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300">
+
+                                {store.uploadCount} uploads
+
+                              </div>
+
+                            )}
+
+                          </div>
+
+                          {store.latestUpload ? (
+
+                            <div className="border-t border-white/10 pt-4 mt-4">
+
+                              <div className="text-sm text-green-400 mb-2">
+
+                                Updated {timeAgo(store.latestUpload.created_at)}
+
+                              </div>
+
+                              {store.latestUpload.caption && (
+
+                                <div className="text-sm text-gray-400 line-clamp-2">
+
+                                  {store.latestUpload.caption}
+
+                                </div>
+
+                              )}
+
+                            </div>
+
+                          ) : (
+
+                            <div className="border-t border-white/10 pt-4 mt-4 text-sm text-gray-500">
+
+                              No local uploads yet.
+
+                            </div>
+
+                          )}
+
+                        </div>
+
+                        <div className="shrink-0">
+
+                          <SaveStoreButton
+                            storeId={String(store.id)}
+                          />
+
+                        </div>
+
+                      </div>
+
+                    </div>
+
                   </div>
 
-                  <div className="text-gray-500 text-xs mt-1">
-                    {timeAgo(upload.created_at)}
-                  </div>
+                )
+              })}
 
-                </div>
+            </div>
 
-              </div>
-
-            </Link>
-
-          ))}
+          )}
 
         </div>
 
       </div>
 
     </main>
+  )
+}
+
+export default function StoresPage() {
+
+  return (
+
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-black text-white">
+
+          <Navbar />
+
+          <div className="p-6">
+
+            <div className="max-w-4xl mx-auto text-gray-400">
+              Loading stores...
+            </div>
+
+          </div>
+
+        </main>
+      }
+    >
+
+      <StoresPageContent />
+
+    </Suspense>
+
   )
 }
