@@ -43,7 +43,7 @@ export default function RecentUploads() {
       if (error) {
         console.error(error)
       } else {
-        setUploads(data || [])
+        setUploads((data as Upload[]) || [])
       }
 
       setLoading(false)
