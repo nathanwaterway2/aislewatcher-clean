@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -13,11 +14,10 @@ export default function Home() {
   const [user, setUser] = useState<any>(null)
   const [username, setUsername] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [loading, setLoading] = useState(true)
 
   const [search, setSearch] = useState('')
+  const [recentUploads, setRecentUploads] = useState<any[]>([])
 
-  // ✅ Profile logic
   useEffect(() => {
 
     const init = async () => {
@@ -26,180 +26,235 @@ export default function Home() {
         data: { user }
       } = await supabase.auth.getUser()
 
-      if (!user) {
-        setLoading(false)
-        return
+      if (user) {
+
+        setUser(user)
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (profile) {
+
+          setUsername(profile.username)
+          setIsAdmin(profile.is_admin || false)
+
+        } else {
+
+          const newUsername = await createUniqueUsername()
+
+          await supabase
+            .from('profiles')
+            .insert({
+              id: user.id,
+              username: newUsername,
+              is_admin: false
+            })
+
+          setUsername(newUsername)
+        }
       }
 
-      setUser(user)
-
-      const { data: profile } = await supabase
-        .from('profiles')
+      // ✅ LOAD RECENT UPLOADS
+      const { data: uploadsData } = await supabase
+        .from('uploads')
         .select('*')
-        .eq('id', user.id)
-        .maybeSingle()
+        .eq('status', 'approved')
+        .not('photo_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(8)
 
-      if (profile) {
-
-        setUsername(profile.username)
-        setIsAdmin(profile.is_admin || false)
-        setLoading(false)
-
-        return
-      }
-
-      const newUsername = await createUniqueUsername()
-
-      const { error } = await supabase
-        .from('profiles')
-        .insert({
-          id: user.id,
-          username: newUsername,
-          is_admin: false
-        })
-
-      if (error) {
-        console.error('PROFILE INSERT ERROR:', error)
-      } else {
-        setUsername(newUsername)
-      }
-
-      setLoading(false)
+      setRecentUploads(uploadsData || [])
     }
 
     init()
 
   }, [])
 
-  // 🔍 SEARCH
+  function timeAgo(dateString: string) {
+
+    const then = new Date(dateString).getTime()
+    const now = Date.now()
+
+    const diff = Math.max(0, now - then)
+
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(minutes / 60)
+    const days = Math.floor(hours / 24)
+
+    if (minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes}m ago`
+    if (hours < 24) return `${hours}h ago`
+
+    return `${days}d ago`
+  }
+
   const handleSearch = () => {
 
-    if (!search) return
+    const value = search.trim()
 
-    const encoded = encodeURIComponent(search.trim())
+    if (!value) return
 
-    router.push(`/stores?q=${encoded}`)
-  }
-
-  // auth functions
-  const handleSignup = async () => {
-
-    const email = prompt('Enter your email')
-    const password = prompt('Create a password')
-
-    if (!email || !password) return
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password
-    })
-
-    if (error) {
-      alert(error.message)
-      return
-    }
-
-    alert('Account created. Now click LOGIN.')
-  }
-
-  const handleLogin = async () => {
-
-    const email = prompt('Enter your email')
-    const password = prompt('Enter your password')
-
-    if (!email || !password) return
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    })
-
-    if (error) {
-      alert(error.message)
-      return
-    }
-
-    window.location.reload()
-  }
-
-  const handleLogout = async () => {
-
-    await supabase.auth.signOut()
-
-    window.location.reload()
+    router.push(`/stores?q=${encodeURIComponent(value)}`)
   }
 
   return (
+
     <main className="min-h-screen bg-black text-white">
 
       <Navbar />
 
       {/* HERO */}
-      <div className="max-w-5xl mx-auto text-center px-6 py-24">
+      <section className="relative overflow-hidden">
 
-        {/* SMALL LABEL */}
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm text-gray-300 mb-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(139,92,246,0.18),transparent_45%)]" />
 
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+        <div className="relative max-w-6xl mx-auto px-6 py-24 text-center">
 
-          Live store activity from real users
+          {/* LABEL */}
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm text-gray-300 mb-8">
+
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+
+            Live store activity from real users
+
+          </div>
+
+          {/* TITLE */}
+          <h1 className="text-5xl md:text-7xl font-semibold mb-6 leading-tight tracking-tight">
+
+            See what’s actually
+            <br />
+            in stores near you
+
+          </h1>
+
+          {/* SUBTITLE */}
+          <p className="text-gray-400 mb-12 text-xl max-w-2xl mx-auto leading-relaxed">
+
+            Browse real shelf photos, track inventory activity,
+            and find items before you waste the trip.
+
+          </p>
+
+          {/* SEARCH */}
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-10">
+
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search Walmart Branford, Target Milford, CVS East Haven..."
+              className="w-full max-w-2xl px-6 py-5 rounded-2xl bg-white/5 border border-white/10 focus:outline-none focus:ring-2 focus:ring-violet-500 text-white placeholder:text-gray-500 backdrop-blur-sm"
+            />
+
+            <button
+              onClick={handleSearch}
+              className="px-8 py-5 rounded-2xl bg-violet-600 text-white font-medium hover:bg-violet-500 transition shadow-xl shadow-violet-900/30"
+            >
+              Search
+            </button>
+
+          </div>
+
+          {/* QUICK STATS */}
+          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-gray-400">
+
+            <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
+              Real shelf photos
+            </div>
+
+            <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
+              Live upload activity
+            </div>
+
+            <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
+              Community verified
+            </div>
+
+          </div>
 
         </div>
 
-        {/* TITLE */}
-        <h1 className="text-5xl md:text-7xl font-semibold mb-6 leading-tight tracking-tight">
+      </section>
 
-          See what’s actually
-          <br />
-          in stores near you
+      {/* RECENTS */}
+      <section className="max-w-6xl mx-auto px-6 pb-24">
 
-        </h1>
+        <div className="flex items-center justify-between mb-6">
 
-        {/* SUBTITLE */}
-        <p className="text-gray-400 mb-12 text-xl max-w-2xl mx-auto leading-relaxed">
+          <div>
 
-          Browse real shelf photos, track inventory activity,
-          and find items before you waste the trip.
+            <h2 className="text-2xl md:text-3xl font-semibold text-white mb-1">
+              Recent store photos
+            </h2>
 
-        </p>
+            <p className="text-gray-400">
+              Latest approved community uploads
+            </p>
 
-        {/* SEARCH */}
-        <div className="flex flex-col sm:flex-row gap-3 justify-center mb-10">
+          </div>
 
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search Walmart Branford, Target Milford, CVS East Haven..."
-            className="w-full max-w-2xl px-6 py-5 rounded-2xl bg-white/5 border border-white/10 focus:outline-none focus:ring-2 focus:ring-violet-500 text-white placeholder:text-gray-500 backdrop-blur-sm"
-          />
-
-          <button
-            onClick={handleSearch}
-            className="px-8 py-5 rounded-2xl bg-violet-600 text-white font-medium hover:bg-violet-500 transition shadow-xl shadow-violet-900/30"
+          <Link
+            href="/stores"
+            className="text-violet-400 hover:text-violet-300 transition text-sm"
           >
-            Search
-          </button>
+            Browse all →
+          </Link>
 
         </div>
 
-        {/* QUICK STATS */}
-        <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-gray-400">
+        {/* GRID */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
 
-          <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
-            Real shelf photos
-          </div>
+          {recentUploads.map((upload, index) => (
 
-          <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
-            Live upload activity
-          </div>
+            <Link
+              key={upload.id || index}
+              href="/stores"
+              className="group"
+            >
 
-          <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
-            Community verified
-          </div>
+              <div className="rounded-2xl overflow-hidden bg-white/5 border border-white/10 hover:border-white/20 transition">
+
+                {/* IMAGE */}
+                <div className="aspect-[4/5] overflow-hidden bg-black">
+
+                  <img
+                    src={upload.photo_url}
+                    alt="Recent upload"
+                    className="w-full h-full object-cover group-hover:scale-[1.03] transition duration-500"
+                  />
+
+                </div>
+
+                {/* INFO */}
+                <div className="p-3">
+
+                  <div className="text-white text-sm font-medium truncate">
+
+                    {upload.find_quality || 'Recent Upload'}
+
+                  </div>
+
+                  <div className="text-gray-500 text-xs mt-1">
+
+                    {timeAgo(upload.created_at)}
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </Link>
+
+          ))}
 
         </div>
 
-      </div>
+      </section>
 
     </main>
   )
