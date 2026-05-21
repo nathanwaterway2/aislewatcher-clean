@@ -8,22 +8,31 @@ import { createUniqueUsername } from '@/lib/createUniqueUsername'
 import Navbar from '@/app/components/Navbar'
 import { getStoreColor } from '@/app/lib/storeStyles'
 
+type PlatformStats = {
+  storesTracked: number
+  uploadsThisWeek: number
+  uploadsToday: number
+}
+
 export default function Home() {
 
   const router = useRouter()
 
-  const [user, setUser] = useState<any>(null)
-  const [username, setUsername] = useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
-
   const [search, setSearch] = useState('')
-
   const [recentBatches, setRecentBatches] = useState<any[]>([])
+  const [earlierBatches, setEarlierBatches] = useState<any[]>([])
+  const [stats, setStats] = useState<PlatformStats>({
+    storesTracked: 0,
+    uploadsThisWeek: 0,
+    uploadsToday: 0,
+  })
 
   useEffect(() => {
 
     const init = async () => {
+
+      setLoading(true)
 
       const {
         data: { user }
@@ -31,20 +40,13 @@ export default function Home() {
 
       if (user) {
 
-        setUser(user)
-
         const { data: profile } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
           .maybeSingle()
 
-        if (profile) {
-
-          setUsername(profile.username)
-          setIsAdmin(profile.is_admin || false)
-
-        } else {
+        if (!profile) {
 
           const newUsername = await createUniqueUsername()
 
@@ -55,16 +57,50 @@ export default function Home() {
               username: newUsername,
               is_admin: false
             })
-
-          setUsername(newUsername)
         }
       }
+
+      const now = new Date()
+
+      const sevenDaysAgo = new Date(now)
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
+      const todayStart = new Date(now)
+      todayStart.setHours(0, 0, 0, 0)
+
+      const [
+        storesCountResult,
+        uploadsWeekResult,
+        uploadsTodayResult,
+      ] = await Promise.all([
+        supabase
+          .from('stores')
+          .select('id', { count: 'exact', head: true }),
+
+        supabase
+          .from('uploads')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'approved')
+          .gte('created_at', sevenDaysAgo.toISOString()),
+
+        supabase
+          .from('uploads')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'approved')
+          .gte('created_at', todayStart.toISOString()),
+      ])
+
+      setStats({
+        storesTracked: storesCountResult.count || 0,
+        uploadsThisWeek: uploadsWeekResult.count || 0,
+        uploadsToday: uploadsTodayResult.count || 0,
+      })
 
       const { data: batchData } = await supabase
         .from('upload_batches')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(12)
+        .limit(30)
 
       const batches = batchData || []
 
@@ -76,44 +112,70 @@ export default function Home() {
         )
       ]
 
-      const { data: storesData } = await supabase
-        .from('stores')
-        .select('*')
-        .in('id', storeIds)
-
       const batchIds = batches.map((b: any) => Number(b.id))
 
-      const { data: uploadsData } = await supabase
-        .from('uploads')
-        .select('*')
-        .in('batch_id', batchIds)
-        .eq('status', 'approved')
-        .not('photo_url', 'is', null)
+      const [
+        storesResult,
+        uploadsResult,
+      ] = await Promise.all([
+
+        storeIds.length > 0
+          ? supabase
+              .from('stores')
+              .select('*')
+              .in('id', storeIds)
+          : Promise.resolve({ data: [] as any[] }),
+
+        batchIds.length > 0
+          ? supabase
+              .from('uploads')
+              .select('*')
+              .in('batch_id', batchIds)
+              .eq('status', 'approved')
+              .not('photo_url', 'is', null)
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: [] as any[] }),
+
+      ])
+
+      const storesData = storesResult.data || []
+      const uploadsData = uploadsResult.data || []
 
       const mergedBatches = batches
         .map((batch: any) => {
 
-          const store = storesData?.find(
+          const store = storesData.find(
             (s: any) =>
               Number(s.id) === Number(batch.store_id)
           )
 
-          const uploads = uploadsData?.filter(
+          const uploads = uploadsData.filter(
             (u: any) =>
               Number(u.batch_id) === Number(batch.id)
-          ) || []
+          )
 
           if (uploads.length === 0) return null
 
           return {
             ...batch,
             store,
-            uploads
+            uploads,
           }
         })
         .filter(Boolean)
 
-      setRecentBatches(mergedBatches)
+      const fresh = mergedBatches.filter((batch: any) => {
+        const createdAt = new Date(batch.created_at).getTime()
+        return createdAt >= sevenDaysAgo.getTime()
+      })
+
+      const earlier = mergedBatches.filter((batch: any) => {
+        const createdAt = new Date(batch.created_at).getTime()
+        return createdAt < sevenDaysAgo.getTime()
+      })
+
+      setRecentBatches(fresh.slice(0, 8))
+      setEarlierBatches(earlier.slice(0, 4))
 
       setLoading(false)
     }
@@ -149,6 +211,207 @@ export default function Home() {
     return `${days}d ago`
   }
 
+  function formatNumber(value: number) {
+
+    return value.toLocaleString()
+  }
+
+  function getBatchPrice(batch: any) {
+
+    const uploads = batch.uploads || []
+
+    const uploadWithPrice = uploads.find((upload: any) =>
+      upload.price_seen ||
+      upload.price ||
+      upload.priceSeen
+    )
+
+    const value =
+      uploadWithPrice?.price_seen ||
+      uploadWithPrice?.price ||
+      uploadWithPrice?.priceSeen ||
+      batch.price_seen ||
+      batch.price ||
+      null
+
+    if (!value) return null
+
+    const text = String(value).trim()
+
+    if (!text) return null
+
+    return text.startsWith('$') ? text : `$${text}`
+  }
+
+  function getBatchText(batch: any) {
+
+    const uploads = batch.uploads || []
+
+    return (
+      batch.notes ||
+      uploads[0]?.caption ||
+      'Fresh community shelf update'
+    )
+  }
+
+  function renderBatchCard(batch: any, compact = false) {
+
+    const uploads = batch.uploads || []
+    const price = getBatchPrice(batch)
+    const note = getBatchText(batch)
+
+    return (
+
+      <Link
+        key={batch.id}
+        href={`/stores/${batch.store?.id || ''}`}
+        className="group block"
+      >
+
+        <div className={`rounded-3xl overflow-hidden bg-[#0b0b0f] border border-white/10 hover:border-white/20 transition hover:-translate-y-1 ${compact ? 'opacity-80 hover:opacity-100' : ''}`}>
+
+          <div className="relative bg-black">
+
+            {uploads.length === 1 && (
+
+              <div className={compact ? 'relative h-[190px]' : 'relative h-[280px] md:h-[300px]'}>
+
+                <img
+                  src={uploads[0].photo_url}
+                  alt="Store upload"
+                  className="w-full h-full object-cover group-hover:scale-[1.02] transition duration-500"
+                />
+
+              </div>
+
+            )}
+
+            {uploads.length === 2 && (
+
+              <div className={`grid grid-cols-2 gap-[2px] ${compact ? 'h-[190px]' : 'h-[280px] md:h-[300px]'}`}>
+
+                {uploads.slice(0, 2).map((upload: any) => (
+
+                  <img
+                    key={upload.id}
+                    src={upload.photo_url}
+                    alt="Store upload"
+                    className="w-full h-full object-cover group-hover:scale-[1.02] transition duration-500"
+                  />
+
+                ))}
+
+              </div>
+
+            )}
+
+            {uploads.length >= 3 && (
+
+              <div className={`grid grid-cols-2 gap-[2px] ${compact ? 'h-[190px]' : 'h-[280px] md:h-[300px]'}`}>
+
+                <img
+                  src={uploads[0].photo_url}
+                  alt="Store upload"
+                  className="w-full h-full object-cover"
+                />
+
+                <div className="relative">
+
+                  <img
+                    src={uploads[1].photo_url}
+                    alt="Store upload"
+                    className="w-full h-full object-cover"
+                  />
+
+                  <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+
+                    <div className="text-white text-3xl font-bold">
+
+                      +{uploads.length - 2}
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            )}
+
+            <div className="absolute top-3 left-3 flex flex-wrap gap-2">
+
+              <div className="px-2.5 py-1 rounded-full bg-green-500 text-white text-xs font-semibold shadow-lg">
+
+                Updated {timeAgo(batch.created_at)}
+
+              </div>
+
+              {price && (
+
+                <div className="px-2.5 py-1 rounded-full bg-black/70 border border-white/15 text-white text-xs font-semibold shadow-lg">
+
+                  Seen at {price}
+
+                </div>
+
+              )}
+
+            </div>
+
+          </div>
+
+          <div className={compact ? 'p-4' : 'p-5'}>
+
+            <div className="mb-3">
+
+              <div className={`font-semibold mb-1 ${compact ? 'text-lg' : 'text-xl'} ${getStoreColor(batch.store?.store || '').text}`}>
+
+                {batch.store?.store || 'Unknown Store'}
+
+              </div>
+
+              <div className="text-sm text-gray-400">
+
+                {batch.store?.city || 'Unknown City'}
+                {batch.store?.st ? `, ${batch.store.st}` : ''}
+
+              </div>
+
+            </div>
+
+            <div className={`text-gray-300 text-sm leading-relaxed mb-4 ${compact ? 'line-clamp-1' : 'line-clamp-2'}`}>
+
+              {note}
+
+            </div>
+
+            <div className="flex items-center justify-between gap-3 text-xs">
+
+              <div className="text-gray-500">
+
+                {uploads.length} photo
+                {uploads.length !== 1 ? 's' : ''}
+
+              </div>
+
+              <div className="text-violet-400 font-medium">
+
+                View store →
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </Link>
+
+    )
+  }
+
   return (
 
     <main className="min-h-screen bg-black text-white">
@@ -160,7 +423,15 @@ export default function Home() {
 
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(139,92,246,0.18),transparent_45%)]" />
 
-        <div className="relative max-w-6xl mx-auto px-6 py-24 text-center">
+        <div className="relative max-w-6xl mx-auto px-6 pt-20 pb-14 text-center">
+
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-green-500/10 border border-green-500/20 text-green-300 text-sm mb-7">
+
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+
+            Soft launch is live — early uploads earn points
+
+          </div>
 
           <h1 className="text-5xl md:text-7xl font-semibold mb-6 leading-tight tracking-tight">
 
@@ -170,18 +441,28 @@ export default function Home() {
 
           </h1>
 
-          <p className="text-gray-400 mb-12 text-xl max-w-2xl mx-auto leading-relaxed">
+          <p className="text-gray-300 mb-3 text-xl max-w-2xl mx-auto leading-relaxed">
 
-            Browse real shelf photos, recent finds,
-            and live inventory activity from nearby stores.
+            Fresh restocks, price sightings, and collector finds near you.
 
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-10">
+          <p className="text-gray-500 mb-10 text-base max-w-2xl mx-auto leading-relaxed">
+
+            Search a store, check recent shelf photos, or post the first update for your area.
+
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
 
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSearch()
+                }
+              }}
               placeholder="Search Walmart Branford, Target Milford, CVS East Haven..."
               className="w-full max-w-2xl px-6 py-5 rounded-2xl bg-white/5 border border-white/10 focus:outline-none focus:ring-2 focus:ring-violet-500 text-white placeholder:text-gray-500 backdrop-blur-sm"
             />
@@ -195,18 +476,57 @@ export default function Home() {
 
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-gray-400">
+          <div className="text-sm text-gray-500 mb-8">
 
-            <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
-              Real shelf photos
+            No update for your store yet?{' '}
+
+            <Link
+              href="/login"
+              className="text-violet-300 hover:text-violet-200 underline underline-offset-4"
+            >
+              Sign up
+            </Link>
+
+            {' '}and be the first to post it.
+
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto">
+
+            <div className="px-5 py-4 rounded-2xl bg-white/5 border border-white/10">
+
+              <div className="text-2xl font-semibold text-white">
+                {formatNumber(stats.storesTracked)}
+              </div>
+
+              <div className="text-sm text-gray-400">
+                stores tracked
+              </div>
+
             </div>
 
-            <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
-              Community uploads
+            <div className="px-5 py-4 rounded-2xl bg-white/5 border border-white/10">
+
+              <div className="text-2xl font-semibold text-white">
+                {formatNumber(stats.uploadsThisWeek)}
+              </div>
+
+              <div className="text-sm text-gray-400">
+                uploads this week
+              </div>
+
             </div>
 
-            <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10">
-              Live store activity
+            <div className="px-5 py-4 rounded-2xl bg-white/5 border border-white/10">
+
+              <div className="text-2xl font-semibold text-white">
+                {formatNumber(stats.uploadsToday)}
+              </div>
+
+              <div className="text-sm text-gray-400">
+                new today
+              </div>
+
             </div>
 
           </div>
@@ -216,9 +536,9 @@ export default function Home() {
       </section>
 
       {/* RECENT ACTIVITY */}
-      <section className="max-w-7xl mx-auto px-6 pb-20">
+      <section className="max-w-6xl mx-auto px-6 pb-24">
 
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
 
           <div>
 
@@ -227,7 +547,7 @@ export default function Home() {
             </h2>
 
             <p className="text-gray-400">
-              Latest uploads grouped by store activity
+              Fresh updates from the last 7 days
             </p>
 
           </div>
@@ -236,7 +556,7 @@ export default function Home() {
             href="/stores"
             className="text-violet-400 hover:text-violet-300 transition text-sm"
           >
-            Browse all →
+            Browse all stores →
           </Link>
 
         </div>
@@ -244,7 +564,7 @@ export default function Home() {
         {loading ? (
 
           <div className="text-gray-400">
-            Loading...
+            Loading recent activity...
           </div>
 
         ) : recentBatches.length === 0 ? (
@@ -256,178 +576,61 @@ export default function Home() {
             </div>
 
             <h3 className="text-xl font-semibold text-white mb-2">
-              No recent uploads yet
+              No fresh uploads yet
             </h3>
 
-            <p className="text-gray-500">
-              Uploads will appear here once approved.
+            <p className="text-gray-500 mb-5">
+              Be the first person to post a shelf update this week.
             </p>
+
+            <Link
+              href="/upload"
+              className="inline-flex px-5 py-3 rounded-2xl bg-violet-600 hover:bg-violet-500 text-white font-medium transition"
+            >
+              Upload an update
+            </Link>
 
           </div>
 
         ) : (
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-            {recentBatches.map((batch: any) => {
+            {recentBatches.map((batch: any) =>
+              renderBatchCard(batch)
+            )}
 
-              const uploads = batch.uploads || []
+          </div>
 
-              return (
+        )}
 
-                <Link
-                  key={batch.id}
-                  href={`/stores/${batch.store?.id || ''}`}
-                  className="group"
-                >
+        {!loading && earlierBatches.length > 0 && (
 
-                  <div className="rounded-3xl overflow-hidden bg-[#0b0b0f] border border-white/10 hover:border-white/20 transition hover:-translate-y-1">
+          <div className="mt-12">
 
-                    {/* IMAGES */}
-                    <div className="relative bg-black">
+            <div className="flex items-center justify-between mb-5">
 
-                      {/* SINGLE IMAGE */}
-                      {uploads.length === 1 && (
+              <div>
 
-                        <div className="relative h-[250px]">
+                <h3 className="text-xl font-semibold text-white">
+                  Earlier updates
+                </h3>
 
-                          <img
-                            src={uploads[0].photo_url}
-                            alt="Upload"
-                            className="w-full h-full object-cover group-hover:scale-[1.02] transition duration-500"
-                          />
+                <p className="text-gray-500 text-sm">
+                  Older activity is kept here so the main feed stays fresh.
+                </p>
 
-                        </div>
+              </div>
 
-                      )}
+            </div>
 
-                      {/* TWO IMAGES */}
-                      {uploads.length === 2 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-                        <div className="grid grid-cols-2 gap-[2px] h-[340px]">
+              {earlierBatches.map((batch: any) =>
+                renderBatchCard(batch, true)
+              )}
 
-                          {uploads.map((upload: any) => (
-
-                            <img
-                              key={upload.id}
-                              src={upload.photo_url}
-                              alt="Upload"
-                              className="w-full h-full object-cover group-hover:scale-[1.02] transition duration-500"
-                            />
-
-                          ))}
-
-                        </div>
-
-                      )}
-
-                      {/* THREE+ IMAGES */}
-                      {uploads.length >= 3 && (
-
-                        <div className="grid grid-cols-2 gap-[2px] h-[340px]">
-
-                          <img
-                            src={uploads[0].photo_url}
-                            alt="Upload"
-                            className="w-full h-full object-cover"
-                          />
-
-                          <div className="relative">
-
-                            <img
-                              src={uploads[1].photo_url}
-                              alt="Upload"
-                              className="w-full h-full object-cover"
-                            />
-
-                            {uploads.length > 2 && (
-
-                              <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-
-                                <div className="text-white text-3xl font-bold">
-
-                                  +{uploads.length - 2}
-
-                                </div>
-
-                              </div>
-
-                            )}
-
-                          </div>
-
-                        </div>
-
-                      )}
-
-                      {/* TIME BADGE */}
-                      <div className="absolute top-3 left-3">
-
-                        <div className="px-2.5 py-1 rounded-full bg-green-500 text-white text-xs font-semibold shadow-lg">
-
-                          {timeAgo(batch.created_at)}
-
-                        </div>
-
-                      </div>
-
-                    </div>
-
-                    {/* INFO */}
-                    <div className="p-4">
-
-                      <div className="mb-3">
-
-                        <div className={`text-lg font-semibold mb-1 ${getStoreColor(batch.store?.store || '').text}`}>
-
-                          {batch.store?.store || 'Unknown Store'}
-
-                        </div>
-
-                        <div className="text-sm text-gray-400">
-
-                          {batch.store?.city || 'Unknown City'}
-                          {batch.store?.st
-                            ? `, ${batch.store.st}`
-                            : ''}
-
-                        </div>
-
-                      </div>
-
-                      <div className="text-gray-300 text-sm leading-relaxed mb-4 line-clamp-2">
-
-                        {batch.notes ||
-                          uploads[0]?.caption ||
-                          'Recent community upload activity'}
-
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs">
-
-                        <div className="text-gray-500">
-
-                          {uploads.length} photo
-                          {uploads.length !== 1 ? 's' : ''}
-
-                        </div>
-
-                        <div className="text-violet-400">
-
-                          View store →
-
-                        </div>
-
-                      </div>
-
-                    </div>
-
-                  </div>
-
-                </Link>
-
-              )
-            })}
+            </div>
 
           </div>
 
