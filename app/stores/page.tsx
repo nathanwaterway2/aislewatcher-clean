@@ -107,21 +107,32 @@ function StoresPageContent() {
 
       if (textParts.length > 0) {
 
-        const text = textParts.join(' ')
+        // Match each word separately so searches like
+        // "Walmart Branford" can match store = Walmart AND city = Branford.
+        for (const textPart of textParts) {
 
-        queryBuilder = queryBuilder.or(
-          `city.ilike.%${text}%,store.ilike.%${text}%`
-        )
+          const safeText = textPart
+            .replace(/[,()]/g, '')
+            .trim()
+
+          if (!safeText) continue
+
+          queryBuilder = queryBuilder.or(
+            `city.ilike.%${safeText}%,store.ilike.%${safeText}%,address.ilike.%${safeText}%,postal.ilike.%${safeText}%`
+          )
+        }
       }
 
       const usingBrowserLocation =
         !!userCoords &&
         !zip &&
-        !state &&
-        textParts.length === 0
+        !state
 
       if (usingBrowserLocation) {
 
+        // Keep search results local when location is available.
+        // This prevents a search like "Walmart" from showing Georgia/Missouri
+        // stores before nearby Connecticut stores.
         const bounds = getLocationBounds(userCoords, 100)
 
         queryBuilder = queryBuilder
@@ -132,7 +143,7 @@ function StoresPageContent() {
       }
 
       const { data: storeData, error: storeError } =
-        await queryBuilder.limit(usingBrowserLocation ? 300 : 100)
+        await queryBuilder.limit(usingBrowserLocation ? 300 : 150)
 
       if (storeError) {
 

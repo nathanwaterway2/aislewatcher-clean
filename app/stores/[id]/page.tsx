@@ -373,6 +373,110 @@ export default function StorePage({
 
           </div>
 
+
+
+          {uploads.length === 0 && (
+            <div className="mt-6 rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-950/70 via-gray-950 to-black p-5 text-sm text-violet-100 shadow-lg shadow-violet-950/30">
+  
+              <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+  
+                <div className="max-w-2xl">
+  
+                  <div className="mb-2 text-lg font-semibold text-white">
+                    🏁 Be one of the first hunters here
+                  </div>
+  
+                  <p className="leading-relaxed text-violet-100/90">
+                    AisleWatcher is brand new, and early collectors have the advantage.
+                    Upload real shelf photos, empty aisles, restocks, or fresh finds to help build live store activity in your area.
+                  </p>
+  
+                  <p className="mt-3 leading-relaxed text-violet-200">
+                    Every approved upload earns points. Early points count toward the first monthly prize challenge, streaks, and future leaderboard rewards.
+                  </p>
+  
+                </div>
+  
+                <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-yellow-100 md:w-80">
+                  <div className="text-sm font-semibold uppercase tracking-wide text-yellow-300">
+                    First prize ordered
+                  </div>
+                  <div className="mt-1 text-base font-bold text-white">
+                    🎁 Porsche 928S Safari
+                  </div>
+                  <p className="mt-2 leading-relaxed text-yellow-100/90">
+                    Top early contributors can win real Hot Wheels rewards as the monthly challenge gets rolling.
+                  </p>
+                </div>
+  
+              </div>
+  
+              {!user && !authLoading && (
+                <div className="mt-5 rounded-2xl border border-white/10 bg-black/35 p-4">
+  
+                  <div className="text-base font-semibold text-white">
+                    Create a free collector account to earn points
+                  </div>
+  
+                  <p className="mt-2 leading-relaxed text-violet-100/80">
+                    You can browse without an account, but uploads, points, saved stores, streaks, and prize challenge rewards require login.
+                  </p>
+  
+                  <div className="mt-4 flex flex-wrap gap-3">
+  
+                    <Link
+                      href="/login"
+                      className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500"
+                    >
+                      Sign up / Login
+                    </Link>
+  
+                    <Link
+                      href={`/stores/${store.id}/upload`}
+                      className="rounded-xl border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 transition hover:bg-white/10"
+                    >
+                      Upload after login
+                    </Link>
+  
+                  </div>
+  
+                </div>
+              )}
+  
+              {user && (
+                <div className="mt-5 rounded-2xl border border-green-500/20 bg-green-500/10 p-4 text-green-100">
+                  <div className="font-semibold text-white">
+                    You are logged in — uploads from this account can earn points.
+                  </div>
+                  <p className="mt-2 text-green-100/80">
+                    Upload useful shelf activity to help build this store and climb as an early contributor.
+                  </p>
+                </div>
+              )}
+  
+              <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-white/10 px-3 py-1 text-violet-100">
+                  Shelf photos
+                </span>
+                <span className="rounded-full bg-white/10 px-3 py-1 text-violet-100">
+                  Empty aisle reports
+                </span>
+                <span className="rounded-full bg-white/10 px-3 py-1 text-violet-100">
+                  Restock updates
+                </span>
+                <span className="rounded-full bg-white/10 px-3 py-1 text-violet-100">
+                  Points are live
+                </span>
+                <span className="rounded-full bg-white/10 px-3 py-1 text-violet-100">
+                  Prize challenge
+                </span>
+              </div>
+  
+            </div>
+  
+  
+          )}
+
           {/* RECENT ACTIVITY */}
           <div className="mt-8">
 
@@ -382,8 +486,39 @@ export default function StorePage({
 
             {uploads.length === 0 ? (
 
-              <div className="bg-gray-900 rounded-xl p-6 text-gray-500 border border-gray-800">
-                No approved uploads yet.
+              <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
+                <div className="text-lg font-semibold text-white">
+                  No uploads for this store yet.
+                </div>
+                <p className="mt-2 text-gray-400 leading-relaxed">
+                  Be the first hunter to track this location. Upload a shelf photo, empty aisle, restock, or fresh find to earn points and help other collectors avoid wasted trips.
+                </p>
+
+                {!user && !authLoading && (
+                  <p className="mt-3 text-sm text-violet-300">
+                    Create a free collector account first so your uploads count toward points, streaks, and prize rewards.
+                  </p>
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-3">
+
+                  {!user && !authLoading && (
+                    <Link
+                      href="/login"
+                      className="inline-flex rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 transition"
+                    >
+                      Sign up / Login
+                    </Link>
+                  )}
+
+                  <Link
+                    href={`/stores/${store.id}/upload`}
+                    className="inline-flex rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition"
+                  >
+                    Upload first report
+                  </Link>
+
+                </div>
               </div>
 
             ) : (

@@ -12,7 +12,7 @@ type Upload = {
   stores?: {
     city: string
     st: string
-  }
+  }[]
 }
 
 export default function RecentUploads() {
@@ -114,7 +114,7 @@ export default function RecentUploads() {
 
               <div className="text-xs text-gray-500">
 
-                {upload.stores?.city}, {upload.stores?.st}
+                {upload.stores?.[0]?.city}, {upload.stores?.[0]?.st}
 
               </div>
 

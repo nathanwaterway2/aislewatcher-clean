@@ -36,6 +36,7 @@ export default function UploadForm({
   const [stockLevel, setStockLevel] = useState(DEFAULT_STOCK_LEVEL)
   const [findQuality, setFindQuality] = useState(DEFAULT_FIND_QUALITY)
   const [notes, setNotes] = useState('')
+  const [priceSeen, setPriceSeen] = useState('')
   const [files, setFiles] = useState<FileList | null>(null)
   const [uploading, setUploading] = useState(false)
 
@@ -201,6 +202,7 @@ export default function UploadForm({
         } = await createUploadRow(
           {
             ...baseUploadPayload,
+            price_seen: priceSeen.trim() || null,
             photo_lat: metadata.photoLat,
             photo_long: metadata.photoLong,
             photo_metadata: metadata,
@@ -301,6 +303,20 @@ export default function UploadForm({
             </option>
           ))}
         </select>
+      </div>
+
+      <div>
+        <label className="block mb-2 text-sm text-gray-400">
+          Price seen <span className="text-gray-600">(optional)</span>
+        </label>
+
+        <input
+          type="text"
+          value={priceSeen}
+          onChange={(e) => setPriceSeen(e.target.value)}
+          className="w-full bg-black border border-gray-700 rounded-lg p-3"
+          placeholder="Example: $1.25, $6.49, 2 for $5"
+        />
       </div>
 
       <div>
